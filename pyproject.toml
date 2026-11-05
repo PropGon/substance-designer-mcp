@@ -2,7 +2,7 @@
 name = "substance-designer-mcp"
 version = "0.1.0"
 description = "Servidor MCP para Adobe Substance 3D Designer y sus herramientas sbscooker/sbsrender"
-authors = [{ name = "PropGon" }]
+authors = [{ name = "PropGon", email = "tools@propgon.com" }]
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["mcp>=1.2,<2"]
