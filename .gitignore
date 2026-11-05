@@ -4,3 +4,4 @@ __pycache__/
 .pytest_cache/
 examples/render_*/
 examples/verify_all_tools/
+examples/*.sbsar

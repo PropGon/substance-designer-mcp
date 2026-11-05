@@ -6,7 +6,9 @@ sin abrir Designer, con `sbscooker` y `sbsrender`.
 
 Requiere Designer 16.0 o posterior. Probado en Windows con Designer 16.0.7 (Python 3.13, PySide6) y Claude Code. **En macOS está implementado pero no se ha
 probado**: la ruta de las herramientas (`Designer.app/Contents/MacOS`) es una suposición, y puedes
-corregirla con `SD_MCP_SAT_DIR`.
+corregirla con `SD_MCP_SAT_DIR`. Tampoco se han probado Claude Desktop, deshacer con Ctrl+Z ni otras versiones de Designer.
+
+Proyecto independiente y gratuito, sin afiliación con Adobe ni respaldo suyo. Necesitas tu propia licencia de Designer.
 
 ```
 Claude ──stdio──> servidor MCP ──TCP 127.0.0.1 + token──> plugin ──señal Qt──> hilo principal de Designer
@@ -169,13 +171,13 @@ Dos límites que conviene conocer:
 Shapes, Details, Color y Outputs; una salida por mapa PBR (`baseColor`, `normal`, `roughness`, `metallic`, `height`,
 `ambientOcclusion`) y 3 parámetros: `base_tint`, `noise_scale` y `normal_intensity`.
 
-Con Designer abierto y la carpeta de salida dentro de `allowed_dirs`:
+El `.sbsar` no se incluye: lo genera el script. Con Designer abierto y la carpeta de salida dentro de `allowed_dirs`:
 
 ```bash
 uv run python examples/build_template_material.py "C:/Users/TU_USUARIO/Documents/SubstanceDesignerMCP"
 ```
 
-Para comprobar que cada parámetro cambia solo los mapas esperados (no necesita Designer):
+Para comprobar que cada parámetro cambia solo los mapas esperados (usa ese `.sbsar` y no necesita Designer):
 
 ```bash
 uv run python examples/verify_template_parameters.py "C:/Users/TU_USUARIO/Documents/SubstanceDesignerMCP"
@@ -211,3 +213,7 @@ uv run python examples/verify_all_tools.py "C:/carpeta/permitida"
 | `no pudo iniciar el puente` en la consola de Designer | El puerto está ocupado o `config.json` tiene un error. Cambia `bridge_port`. |
 | `fuera de las carpetas permitidas` | Agrega la carpeta a `allowed_dirs` y reinicia Designer. |
 | `Designer no respondio a tiempo` | Puede estar calculando o tener un diálogo abierto. El comando podría ejecutarse igualmente al liberarse. |
+
+## Licencia
+
+[MIT](LICENSE), © PropGon. Adobe y Substance 3D Designer son marcas de Adobe; el uso de `sbscooker` y `sbsrender` se rige por tu licencia con Adobe.
