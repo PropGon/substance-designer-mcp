@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+examples/render_*/
+examples/verify_all_tools/

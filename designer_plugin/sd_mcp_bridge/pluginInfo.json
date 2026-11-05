@@ -1,0 +1,8 @@
+{
+  "metadata_format_version": "1",
+  "name": "sd_mcp_bridge",
+  "version": "0.1.0",
+  "author": "substance-designer-mcp",
+  "min_designer_version": "16.0.0",
+  "platform": "any"
+}
