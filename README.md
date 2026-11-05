@@ -47,11 +47,19 @@ Copia `config.example.json` a `~/.substance-designer-mcp/config.json` y edita `a
 
 ### 4. Conectar Claude
 
-**Claude Code:**
+**Claude Code**, en Git Bash, macOS o Linux:
 
 ```bash
 claude mcp add --scope user substance-designer -- uv --directory "C:/ruta/a/substance-designer-mcp" run substance-designer-mcp
 ```
+
+En PowerShell, `--` debe ir entre comillas; sin ellas, el comando falla con `unknown option '--directory'`:
+
+```powershell
+claude mcp add --scope user substance-designer '--' uv --directory "C:/ruta/a/substance-designer-mcp" run substance-designer-mcp
+```
+
+`claude mcp list` debe mostrar el servidor como conectado.
 
 **Claude Desktop:** edita `%APPDATA%\Claude\claude_desktop_config.json` (en macOS,
 `~/Library/Application Support/Claude/claude_desktop_config.json`) y reinicia la aplicación. Usa la ruta completa de
