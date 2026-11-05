@@ -13,6 +13,9 @@ from .config import detect_installation, tool_version
 
 mcp = FastMCP("substance-designer")
 
+# Spelled out rather than Any: with no type in the schema, models send every number as text.
+ParameterValue = bool | int | float | str | list[bool | int | float | str]
+
 
 def _designer(command: str, **params: Any) -> Any:
     try:
@@ -146,7 +149,7 @@ def connect_nodes(
 
 @mcp.tool()
 def set_node_parameter(
-    node_id: str, parameter: str, value: Any, graph: str | None = None, package: str | None = None
+    node_id: str, parameter: str, value: ParameterValue, graph: str | None = None, package: str | None = None
 ) -> dict:
     """Cambia un parametro del nodo. Vectores y colores van como lista; los enums por su id.
 
@@ -221,7 +224,7 @@ def auto_layout(
 def expose_parameter(
     identifier: str,
     type: str = "float",
-    default: Any = None,
+    default: ParameterValue | None = None,
     label: str | None = None,
     description: str | None = None,
     group: str | None = None,
@@ -235,7 +238,7 @@ def expose_parameter(
 ) -> dict:
     """Crea un parametro del grafo y, con node_id y node_parameter, hace que controle ese parametro del nodo.
 
-    type: float, float2, float3, float4, color, int, int2, int3, int4, bool o string.
+    Sin default, un parametro enlazado toma el valor actual del nodo. type: float, float2, float3, float4, color, int, int2, int3, int4, bool o string.
     """
     return _designer(
         "expose_parameter", identifier=identifier, type=type, default=default, label=label,

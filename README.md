@@ -4,7 +4,7 @@ Servidor MCP para que Claude cree y modifique grafos de materiales en Adobe Subs
 nodos, conexiones, parámetros, frames, salidas PBR, guardado y exportación. También cocina y renderiza
 sin abrir Designer, con `sbscooker` y `sbsrender`.
 
-Requiere Designer 16.0 o posterior. Probado en Windows con Designer 16.0.7 (Python 3.13, PySide6). **En macOS está implementado pero no se ha
+Requiere Designer 16.0 o posterior. Probado en Windows con Designer 16.0.7 (Python 3.13, PySide6) y Claude Code. **En macOS está implementado pero no se ha
 probado**: la ruta de las herramientas (`Designer.app/Contents/MacOS`) es una suposición, y puedes
 corregirla con `SD_MCP_SAT_DIR`.
 

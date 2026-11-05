@@ -16,6 +16,7 @@ from .paths import check_input_file, check_output_dir
 TOOL_TIMEOUT_SECONDS = 900
 PARAMETER_ID_RE = re.compile(r"^\$?[A-Za-z_][A-Za-z0-9_]*$")
 SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+NUMBER_RE = re.compile(r"^\s*[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?\s*$")
 OUTPUT_FORMATS = {"png", "jpg", "tga", "tif", "tiff", "exr", "hdr", "psd", "webp", "bmp", "dds"}
 BIT_DEPTHS = {"8", "16", "16f", "32f"}
 _CREATE_NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
@@ -59,15 +60,28 @@ def _run(args: list[str]) -> subprocess.CompletedProcess:
     return completed
 
 
+def _format_number(value: object) -> str | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)) and math.isfinite(value):
+        return str(value)
+    if isinstance(value, str) and NUMBER_RE.match(value):  # models may send numbers as text
+        return value.strip()
+    return None
+
+
 def _format_value(value: object) -> str:
     if isinstance(value, bool):
         return "1" if value else "0"
-    if isinstance(value, (int, float)) and math.isfinite(value):
-        return str(value)
-    if isinstance(value, (list, tuple)) and value and all(
-        isinstance(item, (int, float)) and not isinstance(item, bool) and math.isfinite(item) for item in value
-    ):
-        return ",".join(str(item) for item in value)
+    if isinstance(value, str) and value.strip().lower() in ("true", "false"):
+        return "1" if value.strip().lower() == "true" else "0"
+    number = _format_number(value)
+    if number is not None:
+        return number
+    if isinstance(value, (list, tuple)) and value:
+        items = [_format_number(item) for item in value]
+        if None not in items:
+            return ",".join(items)
     raise ValueError(f"Valor de parametro no admitido: {value!r}. Usa un numero, booleano o lista de numeros.")
 
 

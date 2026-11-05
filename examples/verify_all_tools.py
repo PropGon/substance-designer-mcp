@@ -92,6 +92,13 @@ async def main(folder: Path) -> None:
         for node_id, parameter, value in bad_values:
             await rejected("set_node_parameter", node_id=node_id, parameter=parameter, value=value, **scope)
         ok(f"set_node_parameter rechaza {len(bad_values)} valores invalidos sin colgarse")
+        for node_id, parameter, text, expected in (
+            (noise, "scale", "14", 14), (noise, "disorder", "0.25", 0.25), (uniform, "colorswitch", "false", False),
+        ):
+            await call("set_node_parameter", node_id=node_id, parameter=parameter, value=text, **scope)
+            read = await call("get_node_parameter", node_id=node_id, parameter=parameter, **scope)
+            assert read["value"] == expected, (parameter, read)
+        ok("set_node_parameter acepta numeros y booleanos en forma de texto, como los envia un modelo")
 
         await call("create_frame", title="Marco", x=-400, y=-100, width=500, height=400, color=[0.2, 0.3, 0.4, 0.5], **scope)
         await call("create_comment", text="Comentario suelto", x=-400, y=-150, **scope)
@@ -111,6 +118,15 @@ async def main(folder: Path) -> None:
         for kind, default in (("int", 3), ("bool", True), ("string", "hola"), ("float2", [1, 2]), ("int3", [1, 2, 3]), ("color", [1, 0, 0, 1])):
             await call("expose_parameter", identifier=f"p_{kind}", type=kind, default=default, **scope)
         ok("expose_parameter con 6 tipos mas")
+        normal_node = (await call("create_node", definition="sbs::compositing::normal", **scope))["id"]
+        await call("set_node_parameter", node_id=normal_node, parameter="intensity", value=2.5, **scope)
+        inherited = await call(
+            "expose_parameter", identifier="inherited", type="float", node_id=normal_node, node_parameter="intensity", **scope
+        )
+        assert abs(inherited["default"] - 2.5) < 1e-6, inherited
+        as_text = await call("expose_parameter", identifier="from_text", type="float", default="0.75", **scope)
+        assert abs(as_text["default"] - 0.75) < 1e-6, as_text
+        ok("expose_parameter sin default conserva el valor del nodo, y acepta el default como texto")
         before = {n["id"] for n in (await call("list_nodes", **scope))["nodes"]}
         await rejected("expose_parameter", identifier="amount", **scope)
         await rejected("expose_parameter", identifier="$malo", **scope)

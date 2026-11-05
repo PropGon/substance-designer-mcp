@@ -34,6 +34,7 @@ from sd.api.sdvaluestring import SDValueString
 from sd.api.sdvalueusage import SDValueUsage
 from sd.ui.graphgrid import GraphGrid
 
+from .coercion import coerce_scalar
 from .layout import compute_layout
 from .security import check_path
 from .transport import BridgeError
@@ -212,18 +213,10 @@ def _value_class(module: str, name: str):
 
 
 def _check_scalar(type_id: str, raw: object, where: str):
-    if type_id == "string":
-        if isinstance(raw, str):
-            return raw
-    elif type_id == "bool":
-        if isinstance(raw, bool):
-            return raw
-    elif not isinstance(raw, bool):
-        if type_id == "int" and (isinstance(raw, int) or isinstance(raw, float) and raw.is_integer()):
-            return int(raw)
-        if type_id in ("float", "double") and isinstance(raw, (int, float)) and math.isfinite(raw):
-            return float(raw)
-    raise BridgeError("invalid_value", f"{where} espera un valor de tipo {type_id}, no {raw!r}.")
+    try:
+        return coerce_scalar(type_id, raw)
+    except ValueError:
+        raise BridgeError("invalid_value", f"{where} espera un valor de tipo {type_id}, no {raw!r}.") from None
 
 
 def _make_value(sd_type, raw: object, where: str):
@@ -624,7 +617,13 @@ def expose_parameter(params: dict) -> dict:
             raise BridgeError("already_exists", f"'{target_prop.getId()}' ya esta controlado por una funcion.")
 
     sd_type = _value_class(module, class_name).sNew()
-    default = _make_value(sd_type, params["default"], "'default'") if params.get("default") is not None else None
+    raw_default = params.get("default")
+    if raw_default is None and target_node is not None:
+        # Otherwise the new parameter starts empty and silently changes how the node looks.
+        current = _to_json(target_node.getPropertyValue(target_prop))
+        if isinstance(current, (bool, int, float, list)) or (isinstance(current, str) and not current.startswith("<")):
+            raw_default = current
+    default = _make_value(sd_type, raw_default, "'default'") if raw_default is not None else None
 
     prop = graph.newProperty(identifier, sd_type, INPUT)
     try:
