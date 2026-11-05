@@ -4,9 +4,8 @@ Servidor MCP para que Claude cree y modifique grafos de materiales en Adobe Subs
 nodos, conexiones, parámetros, frames, salidas PBR, guardado y exportación. También cocina y renderiza
 sin abrir Designer, con `sbscooker` y `sbsrender`.
 
-Requiere Designer 16.0 o posterior. Probado en Windows con Designer 16.0.7 (Python 3.13, PySide6) y Claude Code. **En macOS está implementado pero no se ha
-probado**: la ruta de las herramientas (`Designer.app/Contents/MacOS`) es una suposición, y puedes
-corregirla con `SD_MCP_SAT_DIR`. Tampoco se han probado Claude Desktop, deshacer con Ctrl+Z ni otras versiones de Designer.
+Es para Windows y requiere Designer 16.0 o posterior. Funciona con Claude Code y Claude Desktop, verificado en
+Windows 11 con Designer 16.0.7. Cada herramienta que modifica el grafo se deshace con Ctrl+Z en un solo paso.
 
 Proyecto independiente y gratuito, sin afiliación con Adobe ni respaldo suyo. Necesitas tu propia licencia de Designer.
 
@@ -17,7 +16,7 @@ Claude ──stdio──> servidor MCP ──TCP 127.0.0.1 + token──> plugin
 
 ## Instalación
 
-Necesitas [uv](https://docs.astral.sh/uv/) y Designer 16.0 o posterior. El servidor usa los `sbscooker` y `sbsrender`
+Necesitas [uv](https://docs.astral.sh/uv/) y Designer 16.0 o posterior; uv instala Python por ti. El servidor usa los `sbscooker` y `sbsrender`
 que vienen con Designer, o los del Automation Toolkit si indicas su carpeta. Este proyecto no los incluye: su uso
 se rige por tu licencia de Adobe.
 
@@ -29,12 +28,12 @@ uv --directory "C:/ruta/a/substance-designer-mcp" sync
 
 ### 2. Copiar el plugin a Designer
 
-Copia la carpeta `designer_plugin/sd_mcp_bridge` a la carpeta de plugins de usuario:
+Con Designer cerrado y desde la carpeta del proyecto, en PowerShell, crea la carpeta de plugins si no existe y copia el plugin:
 
-| Sistema | Carpeta |
-|---|---|
-| Windows | `%USERPROFILE%\Documents\Adobe\Adobe Substance 3D Designer\python\sduserplugins` |
-| macOS | `~/Documents/Adobe/Adobe Substance 3D Designer/python/sduserplugins` (sin probar) |
+```powershell
+New-Item -ItemType Directory -Force "$env:USERPROFILE\Documents\Adobe\Adobe Substance 3D Designer\python\sduserplugins"
+Copy-Item -Recurse designer_plugin\sd_mcp_bridge "$env:USERPROFILE\Documents\Adobe\Adobe Substance 3D Designer\python\sduserplugins\sd_mcp_bridge"
+```
 
 Debe quedar así: `sduserplugins/sd_mcp_bridge/pluginInfo.json` y `sduserplugins/sd_mcp_bridge/sd_mcp_bridge/__init__.py`.
 
@@ -49,7 +48,7 @@ Copia `config.example.json` a `~/.substance-designer-mcp/config.json` y edita `a
 
 ### 4. Conectar Claude
 
-**Claude Code**, en Git Bash, macOS o Linux:
+**Claude Code**, en Git Bash:
 
 ```bash
 claude mcp add --scope user substance-designer -- uv --directory "C:/ruta/a/substance-designer-mcp" run substance-designer-mcp
@@ -63,9 +62,10 @@ claude mcp add --scope user substance-designer '--' uv --directory "C:/ruta/a/su
 
 `claude mcp list` debe mostrar el servidor como conectado.
 
-**Claude Desktop:** edita `%APPDATA%\Claude\claude_desktop_config.json` (en macOS,
-`~/Library/Application Support/Claude/claude_desktop_config.json`) y reinicia la aplicación. Usa la ruta completa de
-`uv`, porque Claude Desktop puede no ver tu `PATH`:
+**Claude Desktop:** edita `claude_desktop_config.json`. Según cómo se instaló la app, está en
+`%LOCALAPPDATA%\Claude-Data\<carpeta>\` o en `%APPDATA%\Claude\`. Añade esto dentro del archivo, sin borrar lo que ya
+tenga, y cierra Claude Desktop por completo antes de volver a abrirlo. Usa la ruta completa de `uv`, porque Claude
+Desktop puede no ver tu `PATH`:
 
 ```json
 {
@@ -86,7 +86,7 @@ Las variables de entorno tienen prioridad sobre `~/.substance-designer-mcp/confi
 
 | Variable | Clave en config.json | Para qué sirve | Por defecto |
 |---|---|---|---|
-| `SD_MCP_ALLOWED_DIRS` | `allowed_dirs` | Carpetas permitidas (separadas por `;` en Windows y `:` en macOS) | `~/Documents/SubstanceDesignerMCP` |
+| `SD_MCP_ALLOWED_DIRS` | `allowed_dirs` | Carpetas permitidas (separadas por `;`) | `~/Documents/SubstanceDesignerMCP` |
 | `SD_MCP_DESIGNER_DIR` | `designer_dir` | Carpeta de Designer | Se detecta sola |
 | `SD_MCP_SAT_DIR` | `sat_dir` | Carpeta de `sbsrender` y `sbscooker`, si usas otro SAT | Las de Designer |
 | `SD_MCP_PORT` | `bridge_port` | Puerto del plugin | `9817` |
