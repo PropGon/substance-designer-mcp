@@ -7,6 +7,7 @@ Requires Designer open with the plugin loaded. Usage:
 
 from __future__ import annotations
 
+import struct
 import sys
 from pathlib import Path
 
@@ -152,6 +153,58 @@ async def main(folder: Path) -> None:
         await rejected("delete_node", node_id=temporary, **scope)
         ok("delete_node")
 
+        # Discovery: create_node describes the node it created.
+        created = await call("create_node", definition="sbs::compositing::gradient", x=600, y=600, **scope)
+        gradient = created["id"]
+        assert [i["id"] for i in created["inputs"]] == ["input1"], created["inputs"]
+        assert "gradientrgba" in [p["id"] for p in created["parameters"]]
+        found = await call("search_library", query="Perlin noise")
+        assert "noise_perlin_noise" in found["matches"] and found["all_words_matched"], found
+        assert "noise_perlin_noise" in (await call("search_library", query="perlin"))["matches"]
+        ok(f"create_node describe entradas y parametros; search_library encuentra Perlin entre {found['library_size']} filtros")
+
+        # Preview: only nodes that reach an output are computed.
+        assert "salida" in await rejected("get_node_preview", node_id=gradient, **scope)
+        await call("connect_nodes", from_node=noise, to_node=gradient, to_input="input1", **scope)
+        await call("create_output_node", usage="baseColor", identifier="out_gradient", x=900, y=600, source_node=gradient, **scope)
+        before = await call("get_node_preview", node_id=gradient, size=128, **scope)
+        (mime, png), = before["_images"]
+        width, height = struct.unpack(">II", png[16:24])
+        assert mime == "image/png" and png[:8] == b"\x89PNG\r\n\x1a\n" and max(width, height) == 128, (mime, width, height)
+        assert before["texture_size"] == [512, 512] and before["preview_size"] == [width, height], before
+        await rejected("get_node_preview", node_id=gradient, size=5000, **scope)
+        await rejected("get_node_preview", node_id=gradient, output="noexiste", **scope)
+        ok(f"get_node_preview devuelve un PNG real de {width}x{height} y explica cuando un nodo no se calcula")
+
+        # Gradients and curves, including values sent as text.
+        keys = [{"position": 0, "value": [0.05, 0.02, 0.0, 1.0]}, {"position": "1", "value": ["1", 0.6, 0.2, 1], "midpoint": 0.3}]
+        await call("set_node_parameter", node_id=gradient, parameter="gradientrgba", value=keys, **scope)
+        read = (await call("get_node_parameter", node_id=gradient, parameter="gradientrgba", **scope))["value"]
+        assert [k["position"] for k in read] == [0.0, 1.0] and [round(k["midpoint"], 3) for k in read] == [0.5, 0.3], read
+        assert [round(c, 3) for c in read[1]["value"]] == [1.0, 0.6, 0.2, 1.0], read
+        after = await call("get_node_preview", node_id=gradient, size=128, **scope)
+        assert after["_images"][0][1] != png, "El gradiente no cambio la imagen"
+        ok("gradientrgba: se escribe, se lee con midpoint por defecto 0.5 y cambia la vista previa")
+
+        curve = (await call("create_node", definition="sbs::compositing::curve", x=600, y=800, **scope))["id"]
+        points = [{"position": [0, 0]}, {"position": [0.5, 0.75]}, {"position": [1, 1], "isLocked": False}]
+        await call("set_node_parameter", node_id=curve, parameter="curveluminance", value=points, **scope)
+        read = (await call("get_node_parameter", node_id=curve, parameter="curveluminance", **scope))["value"]
+        assert [p["position"] for p in read] == [[0.0, 0.0], [0.5, 0.75], [1.0, 1.0]], read
+        assert read[1]["left"] == read[1]["right"] == [0.5, 0.75] and read[2]["isLocked"] is False, read
+        ok("curveluminance: 3 puntos con manejadores por defecto en el propio punto")
+
+        for bad in (
+            [{"value": [1, 0, 0, 1]}],
+            [{"position": 0, "value": [1, 0, 0, 1], "color": 1}],
+            {"position": 0},
+            [{"position": 0, "value": [1, 0]}],
+        ):
+            message = await rejected("set_node_parameter", node_id=gradient, parameter="gradientrgba", value=bad, **scope)
+            # A bare object never reaches Designer: the tool schema already refuses it.
+            assert "gradientrgba" in message or "validation error" in message, message
+        ok("gradientrgba rechaza puntos sin posicion, campos desconocidos, objetos sueltos y colores incompletos")
+
         moved = await call("auto_layout", **scope)
         positions = {n["id"]: n["position"] for n in (await call("list_nodes", **scope))["nodes"]}
         assert moved["moved"] == len(positions)
@@ -197,7 +250,9 @@ async def main(folder: Path) -> None:
             "render_outputs", sbsar_path=cooked["sbsar"], output_dir=str(work / "render"), usages=["baseColor"],
             output_format="tga", bit_depth="8", width=128, height=128, parameters={"amount": 0.8},
         )
-        assert len(rendered["files"]) == 1 and rendered["files"][0].endswith(".tga"), rendered
+        names = sorted(Path(f).stem for f in rendered["files"])
+        assert names == ["Verify_Graph_out_0", "Verify_Graph_out_gradient"], rendered
+        assert all(f.endswith(".tga") for f in rendered["files"]), rendered
         await rejected("render_outputs", sbsar_path=str(outside / "x.sbsar"), output_dir=str(work))
         ok("render_outputs con filtro de usage, formato y parametros")
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import ctypes
 import difflib
@@ -17,6 +18,7 @@ import sd
 from PySide6 import QtCore
 from sd.api import sdbasetypes
 from sd.api.apiexception import APIException
+from sd.api.qtforpythonuimgrwrapper import QtForPythonUIMgrWrapper
 from sd.api.sbs.sdsbsarexporter import SDSBSARExporter
 from sd.api.sbs.sdsbscompgraph import SDSBSCompGraph
 from sd.api.sdapplication import SDApplicationPath
@@ -25,12 +27,15 @@ from sd.api.sdgraphobjectcomment import SDGraphObjectComment
 from sd.api.sdgraphobjectframe import SDGraphObjectFrame
 from sd.api.sdhistoryutils import SDHistoryUtils
 from sd.api.sdproperty import SDPropertyCategory, SDPropertyInheritanceMethod
+from sd.api.sdtypearray import SDTypeArray
 from sd.api.sdtypeenum import SDTypeEnum
+from sd.api.sdtypestruct import SDTypeStruct
 from sd.api.sdtypeusage import SDTypeUsage
 from sd.api.sdusage import SDUsage
 from sd.api.sdvaluearray import SDValueArray
 from sd.api.sdvalueenum import SDValueEnum
 from sd.api.sdvaluestring import SDValueString
+from sd.api.sdvaluestruct import SDValueStruct
 from sd.api.sdvalueusage import SDValueUsage
 from sd.ui.graphgrid import GraphGrid
 
@@ -82,6 +87,18 @@ SCALAR_VALUES = {
     "double": ("sdvaluedouble", "SDValueDouble"),
     "string": ("sdvaluestring", "SDValueString"),
 }
+
+STRUCT_REQUIRED = {
+    "sbs::compositing::gradient_key_rgba": ("value", "position"),
+    "sbs::compositing::curve_key": ("position",),
+}
+
+# Without these, Designer leaves members at zero: a flat gradient key or a curve with broken handles.
+STRUCT_DEFAULTS = {
+    "sbs::compositing::gradient_key_rgba": lambda raw: {"midpoint": 0.5},
+    "sbs::compositing::curve_key": lambda raw: {"left": raw.get("position"), "right": raw.get("position")},
+}
+
 
 def _on_main_thread() -> bool:
     return QtCore.QThread.currentThread() == QtCore.QCoreApplication.instance().thread()
@@ -219,8 +236,42 @@ def _check_scalar(type_id: str, raw: object, where: str):
         raise BridgeError("invalid_value", f"{where} espera un valor de tipo {type_id}, no {raw!r}.") from None
 
 
+def _struct_fields(struct_type) -> list[str]:
+    return [member.getId() for member in struct_type.getMembers()]
+
+
+def _make_struct(struct_type, raw: object, where: str):
+    type_id = struct_type.getId()
+    members = {member.getId(): member for member in struct_type.getMembers()}
+    if not isinstance(raw, dict):
+        raise BridgeError("invalid_value", f"{where} espera un objeto con los campos {list(members)}.")
+    unknown = sorted(set(raw) - set(members))
+    if unknown:
+        raise BridgeError("invalid_value", f"{where} no tiene los campos {unknown}. Campos validos: {list(members)}.")
+    missing = [key for key in STRUCT_REQUIRED.get(type_id, ()) if key not in raw]
+    if missing:
+        raise BridgeError("invalid_value", f"{where} necesita {missing}.")
+    data = {**STRUCT_DEFAULTS.get(type_id, lambda _raw: {})(raw), **raw}
+    value = SDValueStruct.sNew(struct_type)
+    for key, member in members.items():
+        if key in data:
+            value.setPropertyValueFromId(key, _make_value(member.getType(), data[key], f"{where}.{key}"))
+    return value
+
+
 def _make_value(sd_type, raw: object, where: str):
     type_id = sd_type.getId()
+    if isinstance(sd_type, SDTypeArray):
+        item_type = sd_type.getItemType()
+        if not isinstance(raw, (list, tuple)):
+            fields = _struct_fields(item_type) if isinstance(item_type, SDTypeStruct) else item_type.getId()
+            raise BridgeError("invalid_value", f"{where} espera una lista de elementos con {fields}.")
+        array = SDValueArray.sNew(item_type, 0)
+        for index, item in enumerate(raw):
+            array.pushBack(_make_value(item_type, item, f"{where}[{index}]"))
+        return array
+    if isinstance(sd_type, SDTypeStruct):
+        return _make_struct(sd_type, raw, where)
     if isinstance(sd_type, SDTypeEnum):
         choices = [item.getId() for item in sd_type.getEnumerators()]
         if raw not in choices:
@@ -252,6 +303,10 @@ def _to_json(value):
         return None
     if isinstance(value, SDValueEnum):
         return value.getValueId()
+    if isinstance(value, SDValueArray):
+        return [_to_json(item) for item in value.get()]
+    if isinstance(value, SDValueStruct):
+        return {key: _to_json(value.getPropertyValueFromId(key)) for key in _struct_fields(value.getType())}
     getter = getattr(value, "get", None)
     if getter is None:
         return f"<{type(value).__name__}>"
@@ -343,7 +398,10 @@ def list_nodes(params: dict) -> dict:
 
 def get_node_info(params: dict) -> dict:
     graph = _resolve_graph(params)
-    node = _resolve_node(graph, params.get("node_id"))
+    return _describe_node_full(_resolve_node(graph, params.get("node_id")))
+
+
+def _describe_node_full(node) -> dict:
     info = _describe_node_brief(node)
 
     resource = node.getReferencedResource()
@@ -497,7 +555,54 @@ def create_node(params: dict) -> dict:
             )
         node = graph.newNode(definition)
     node.setPosition(float2(x, y))
-    return _describe_node_brief(node)
+    # The full description saves a get_node_info call to learn input and parameter ids.
+    return _describe_node_full(node)
+
+
+def get_node_preview(params: dict) -> dict:
+    graph = _resolve_graph(params)
+    node = _resolve_node(graph, params.get("node_id"))
+    size = params.get("size", 256)
+    if isinstance(size, bool) or not isinstance(size, int) or not 32 <= size <= 1024:
+        raise BridgeError("invalid_params", "'size' debe ser un entero entre 32 y 1024.")
+    outputs = list(node.getProperties(OUTPUT)) or list(node.getDefinition().getProperties(OUTPUT))
+    if not outputs:
+        raise BridgeError("invalid_params", f"El nodo {node.getIdentifier()} no tiene salidas.")
+    wanted = params.get("output")
+    if wanted is not None:
+        outputs = [prop for prop in outputs if prop.getId() == wanted]
+        if not outputs:
+            available = [prop.getId() for prop in node.getProperties(OUTPUT)]
+            raise BridgeError("not_found", f"No existe la salida '{wanted}'. Disponibles: {available}")
+    prop = outputs[0]
+
+    graph.compute()
+    value = node.getPropertyValue(prop)
+    texture = value.get() if value is not None else None
+    if texture is None:
+        raise BridgeError(
+            "not_computed",
+            "Designer solo calcula los nodos que llegan a un nodo de salida. Conecta este nodo, o uno "
+            "posterior, a una salida (create_output_node) y vuelve a pedir la vista previa.",
+        )
+    image = QtForPythonUIMgrWrapper.convertSDTextureToQImage(texture)
+    if image.isNull():
+        raise BridgeError("internal", "Designer devolvio una textura que no se pudo convertir en imagen.")
+    original = [image.width(), image.height()]
+    if max(original) > size:
+        image = image.scaled(size, size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+    data = QtCore.QByteArray()
+    buffer = QtCore.QBuffer(data)
+    buffer.open(QtCore.QIODevice.WriteOnly)
+    image.save(buffer, "PNG")
+    buffer.close()
+    return {
+        "node_id": node.getIdentifier(),
+        "output": prop.getId(),
+        "texture_size": original,
+        "preview_size": [image.width(), image.height()],
+        "png_base64": base64.b64encode(bytes(data)).decode("ascii"),
+    }
 
 
 def delete_node(params: dict) -> dict:
@@ -763,6 +868,7 @@ COMMANDS = {
     "create_graph": create_graph,
     "list_nodes": list_nodes,
     "get_node_info": get_node_info,
+    "get_node_preview": get_node_preview,
     "create_node": create_node,
     "delete_node": delete_node,
     "connect_nodes": connect_nodes,

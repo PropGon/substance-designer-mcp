@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import sys
@@ -20,10 +21,15 @@ class Tools:
 
     async def call(self, tool: str, /, **arguments):
         result = await self._session.call_tool(tool, arguments)
-        text = result.content[0].text if result.content else ""
+        texts = [block.text for block in result.content if block.type == "text"]
+        text = texts[0] if texts else ""
         if result.isError:
             raise ToolCallFailed(f"{tool}: {text}")
-        return json.loads(text) if text else None
+        data = json.loads(text) if text else None
+        images = [block for block in result.content if block.type == "image"]
+        if images and isinstance(data, dict):
+            data["_images"] = [(block.mimeType, base64.b64decode(block.data)) for block in images]
+        return data
 
     async def rejected(self, tool: str, /, **arguments) -> str:
         """Calls a tool that is expected to refuse and returns its error message."""

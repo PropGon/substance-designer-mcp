@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
+import base64
 from typing import Any, Callable
 
 import anyio
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Image
 from mcp.server.fastmcp.exceptions import ToolError
 
-from . import bridge_client, sat
+from . import bridge_client, library, sat
 from .config import detect_installation, tool_version
 
 mcp = FastMCP("substance-designer")
 
 # Spelled out rather than Any: with no type in the schema, models send every number as text.
-ParameterValue = bool | int | float | str | list[bool | int | float | str]
+Scalar = bool | int | float | str
+StructValue = dict[str, Scalar | list[Scalar]]
+ParameterValue = Scalar | list[Scalar | StructValue]
 
 
 def _designer(command: str, **params: Any) -> Any:
@@ -107,6 +110,39 @@ def get_node_info(node_id: str, graph: str | None = None, package: str | None = 
 
 
 @mcp.tool()
+def get_node_preview(
+    node_id: str,
+    output: str | None = None,
+    size: int = 256,
+    graph: str | None = None,
+    package: str | None = None,
+) -> list:
+    """Devuelve una imagen de lo que produce un nodo, para revisar el material mientras lo construyes.
+
+    El nodo debe llegar, directa o indirectamente, a un nodo de salida: Designer no calcula nodos sueltos.
+    size es el lado maximo de la imagen (32 a 1024). Sin output usa la primera salida del nodo.
+    """
+    result = _designer("get_node_preview", node_id=node_id, output=output, size=size, graph=graph, package=package)
+    image = Image(data=base64.b64decode(result.pop("png_base64")), format="png")
+    return [image, result]
+
+
+@mcp.tool()
+def search_library(query: str, limit: int = 20) -> dict:
+    """Busca filtros en la biblioteca de Adobe (mas de 500) por nombre, en ingles: 'perlin noise',
+    'brick', 'tile', 'grunge'. Devuelve los nombres que acepta create_node(library=...). No necesita Designer abierto."""
+    directory = library.packages_dir(detect_installation().designer_dir)
+    if directory is None:
+        raise ToolError("No encontre la biblioteca de Designer. Indica su carpeta con SD_MCP_DESIGNER_DIR o designer_dir.")
+    if not 1 <= limit <= 100:
+        raise ToolError("limit debe estar entre 1 y 100.")
+    try:
+        return library.search(directory, query, limit)
+    except ValueError as exc:
+        raise ToolError(str(exc)) from None
+
+
+@mcp.tool()
 def create_node(
     definition: str | None = None,
     library: str | None = None,
@@ -117,8 +153,9 @@ def create_node(
     package: str | None = None,
 ) -> dict:
     """Crea un nodo. Indica definition para nodos atomicos (p. ej. sbs::compositing::blend)
-    o library para filtros de la biblioteca de Adobe (p. ej. noise_perlin_noise), con library_graph
-    si el paquete contiene varios. Devuelve el id del nodo."""
+    o library para filtros de la biblioteca de Adobe (busca nombres con search_library), con
+    library_graph si el paquete contiene varios. Devuelve el id del nodo con sus entradas, salidas
+    y parametros, para que no tengas que adivinar sus nombres."""
     return _designer(
         "create_node", definition=definition, library=library, library_graph=library_graph,
         x=x, y=y, graph=graph, package=package,
@@ -154,6 +191,11 @@ def set_node_parameter(
     """Cambia un parametro del nodo. Vectores y colores van como lista; los enums por su id.
 
     $outputsize usa log2: [10, 10] significa 1024x1024.
+    Gradientes y curvas van como lista de puntos. Por ejemplo, gradientrgba del nodo
+    sbs::compositing::gradient: [{"position": 0, "value": [0.1, 0.05, 0, 1]}, {"position": 1, "value": [1, 0.6, 0.2, 1]}]
+    (midpoint es opcional, 0.5 por defecto). Y curveluminance del nodo sbs::compositing::curve:
+    [{"position": [0, 0]}, {"position": [0.5, 0.75]}, {"position": [1, 1]}] (left y right son
+    opcionales; por defecto, el propio punto). get_node_info muestra el formato actual de cada parametro.
     """
     return _designer(
         "set_node_parameter", node_id=node_id, parameter=parameter, value=value, graph=graph, package=package

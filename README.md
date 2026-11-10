@@ -105,10 +105,12 @@ Para `allowed_dirs` y el puerto, usa `config.json`, que leen los dos.
 | `create_graph` | Sí | `SDSBSCompGraph.sNew`, `setDefaultParentSize`, `SDPackageMgr.newUserPackage` |
 | `list_nodes` | Sí | `SDGraph.getNodes`, `getGraphObjects` |
 | `get_node_info` | Sí | `SDNode.getDefinition`, `getProperties`, `getPropertyConnections` |
-| `create_node` | Sí | `SDGraph.newNode`, `newInstanceNode` |
+| `get_node_preview` | Sí | `SDSBSCompGraph.compute`, `SDValueTexture`, `QtForPythonUIMgrWrapper.convertSDTextureToQImage` |
+| `search_library` | No | Busca en `resources/packages` de Designer |
+| `create_node` | Sí | `SDGraph.newNode`, `newInstanceNode`; devuelve entradas, salidas y parámetros |
 | `delete_node` | Sí | `SDGraph.deleteNode` |
 | `connect_nodes` | Sí | `SDNode.newPropertyConnectionFromId` |
-| `set_node_parameter` / `get_node_parameter` | Sí | `SDNode.setPropertyValue`, `getPropertyValue`, clases `SDValue*` |
+| `set_node_parameter` / `get_node_parameter` | Sí | `SDNode.setPropertyValue`, `getPropertyValue`, clases `SDValue*`, `SDValueArray` y `SDValueStruct` para gradientes y curvas |
 | `create_frame` | Sí | `SDGraphObjectFrame.sNew`, `setTitle`, `setSize`, `setColor` |
 | `create_comment` | Sí | `SDGraphObjectComment.sNew`, `sNewAsChild` |
 | `expose_parameter` | Sí | `SDResource.newProperty`, `setPropertyAnnotationValueFromId`, `SDNode.newPropertyGraph` |
@@ -140,8 +142,11 @@ Todas las herramientas funcionan, con estas diferencias respecto a lo que cabrí
   Un tamaño fijo (`Absolute`) sí se conservaría, pero `sbscooker` dejaría de exponer `$outputsize` y no se podría cambiar al renderizar.
 - **Las bibliotecas aparecen en el Explorer de Designer.** `loadUserPackage` es la única vía para usar filtros como Perlin Noise.
   `list_graphs` y `get_app_info` las ocultan, pero Designer las muestra.
-- **`set_node_parameter` no admite todos los tipos.** Acepta escalares, vectores, colores y enums. Curvas, gradientes y
-  otras estructuras necesitan `run_python`.
+- **La vista previa solo funciona en nodos que llegan a una salida.** Designer no calcula nodos sueltos; `get_node_preview`
+  lo explica y pide conectar el nodo, o uno posterior, a `create_output_node`.
+- **Gradientes y curvas van como lista de puntos.** `gradientrgba`: `[{"position": 0, "value": [r, g, b, a]}, ...]`, con
+  `midpoint` opcional (0.5). `curveluminance` y las demás curvas: `[{"position": [x, y]}, ...]`, con `left` y `right`
+  opcionales (por defecto, el propio punto). Otras estructuras con campos distintos se aceptan con todos sus campos.
 - **`expose_parameter` crea una función en el nodo.** Enlaza con `sbs::function::get_float1` y similares, que no salen en los
   ejemplos de Adobe pero sí se comprobaron en Designer 16. Un parámetro ya controlado por una función se rechaza.
 
@@ -189,6 +194,8 @@ Ejemplos de lo que puedes pedirle a Claude:
 - *"Expón la intensidad del normal como parámetro de 0 a 5 y ordena el grafo."*
 - *"Cocina Ladrillo.sbs y renderiza los mapas a 2048 en PNG de 16 bits."*
 - *"Renderiza estos tres .sbsar con noise_scale 4, 8 y 16, cada uno en su carpeta."*
+- *"Busca un ruido tipo nubes, conéctalo a un gradient map de negro a rojo y amarillo, como lava, y mira la vista previa
+  antes de darlo por bueno."*
 
 ## Pruebas
 
