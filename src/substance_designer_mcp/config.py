@@ -105,11 +105,12 @@ def designer_process_running(platform: str = sys.platform) -> bool | None:
     """True/False when it can be determined, None when it cannot."""
     try:
         if platform == "win32":
+            # CSV, because the default table cuts long names to "Adobe Substance 3D Design".
             output = subprocess.run(
-                ["tasklist", "/FI", "IMAGENAME eq Adobe Substance 3D Designer.exe", "/NH"],
+                ["tasklist", "/FI", "IMAGENAME eq Adobe Substance 3D Designer.exe", "/FO", "CSV", "/NH"],
                 stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10, check=False,
             ).stdout
-            return "Adobe Substance 3D Designer.exe" in output
+            return '"adobe substance 3d designer.exe"' in output.lower()
         completed = subprocess.run(
             ["pgrep", "-f", "Adobe Substance 3D Designer"],
             stdin=subprocess.DEVNULL, capture_output=True, timeout=10, check=False,

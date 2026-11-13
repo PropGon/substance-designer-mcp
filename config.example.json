@@ -1,5 +1,6 @@
 {
   "bridge_port": 9817,
+  "autostart": true,
   "allowed_dirs": [
     "C:/Users/TU_USUARIO/Documents/SubstanceDesignerMCP"
   ],

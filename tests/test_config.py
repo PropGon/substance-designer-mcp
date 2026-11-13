@@ -56,6 +56,30 @@ def test_nothing_installed_returns_empty():
     assert found == config.Installation(None, None, None)
 
 
+@pytest.mark.parametrize(
+    "stdout, expected",
+    [
+        ('"Adobe Substance 3D Designer.exe","41976","Console","6","1,080,244 K"\n', True),
+        ("INFO: No tasks are running which match the specified criteria.\n", False),
+    ],
+)
+def test_designer_process_detection_reads_full_names(monkeypatch, stdout, expected):
+    seen = {}
+
+    def fake_run(args, **_kwargs):
+        seen["args"] = args
+        return type("R", (), {"stdout": stdout, "returncode": 0})()
+
+    monkeypatch.setattr(config.subprocess, "run", fake_run)
+    assert config.designer_process_running("win32") is expected
+    assert seen["args"][-3:] == ["/FO", "CSV", "/NH"]
+
+
+def test_designer_process_detection_on_this_machine():
+    # Real tasklist: must not crash, whatever is running.
+    assert config.designer_process_running() in (True, False, None)
+
+
 def test_missing_config_file_is_empty():
     assert config.load_file_config() == {}
 

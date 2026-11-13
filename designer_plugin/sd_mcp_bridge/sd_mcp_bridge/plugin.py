@@ -8,13 +8,12 @@ the ``sd`` API may only be called from the main application thread.
 from __future__ import annotations
 
 import logging
+import time
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeout
 
-import sd
-from PySide6 import QtCore
-
 from . import handlers, transport
+from .qt_compat import QtCore
 
 COMMAND_TIMEOUT_SECONDS = 120.0
 
@@ -31,8 +30,9 @@ class _Call:
 class MainThreadExecutor(QtCore.QObject):
     _requested = QtCore.Signal(object)
 
-    def __init__(self):
+    def __init__(self, on_activity):
         super().__init__()
+        self._on_activity = on_activity
         self._requested.connect(self._run, QtCore.Qt.QueuedConnection)
 
     def call(self, command: str, params: dict):
@@ -50,6 +50,7 @@ class MainThreadExecutor(QtCore.QObject):
 
     @QtCore.Slot(object)
     def _run(self, call: _Call) -> None:
+        self._on_activity(call.command)
         # BaseException on purpose: sd's APIException derives from it, and a slot that lets
         # one escape would leave the socket thread waiting for an answer that never comes.
         try:
@@ -70,37 +71,49 @@ class _TransportThread(QtCore.QThread):
 
 
 class Bridge:
+    """Can be started and stopped any number of times; each start uses a fresh token."""
+
     def __init__(self):
-        self._token = transport.new_token()
-        self._executor = None
+        self._executor = MainThreadExecutor(self._note_activity)
         self._server = None
         self._thread = None
-        self._log_handler = None
+        self._token = None
+        self.port = None
+        self.error = None
+        self.last_command = None
+        self.last_activity = 0.0
 
-    def start(self) -> None:
-        self._log_handler = sd.getContext().createRuntimeLogHandler()
-        logger.addHandler(self._log_handler)
-        logger.setLevel(logging.INFO)
+    @property
+    def running(self) -> bool:
+        return self._server is not None
 
-        self._executor = MainThreadExecutor()
+    def _note_activity(self, command: str) -> None:
+        self.last_command = command
+        self.last_activity = time.monotonic()
+
+    def start(self) -> bool:
+        if self.running:
+            return True
+        token = transport.new_token()
         try:
-            port = transport.configured_port()
-            server = transport.BridgeTransport(self._token, self._executor.call, port)
+            server = transport.BridgeTransport(token, self._executor.call, transport.configured_port())
             server.bind()
         except (OSError, ValueError) as exc:
+            self.error = str(exc)
             logger.error("sd_mcp_bridge no pudo iniciar el puente: %s. Revisa config.json y el puerto.", exc)
-            return
-
-        self._server = server
-        transport.write_discovery(server.port, self._token)
+            return False
+        self._server, self._token, self.port, self.error = server, token, server.port, None
+        transport.write_discovery(server.port, token)
         self._thread = _TransportThread(server)
         self._thread.start()
         logger.info("Puente MCP escuchando en %s:%s", transport.HOST, server.port)
+        return True
 
     def stop(self) -> None:
-        if self._server is not None:
-            self._server.stop()
-            self._thread.wait(int((transport.ACCEPT_POLL_SECONDS + transport.READ_TIMEOUT_SECONDS) * 1000))
-            transport.remove_discovery(self._token)
-        if self._log_handler is not None:
-            logger.removeHandler(self._log_handler)
+        if not self.running:
+            return
+        self._server.stop()
+        self._thread.wait(int((transport.ACCEPT_POLL_SECONDS + transport.READ_TIMEOUT_SECONDS) * 1000))
+        transport.remove_discovery(self._token)
+        self._server = self._thread = self._token = self.port = None
+        logger.info("Puente MCP detenido.")

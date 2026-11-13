@@ -21,7 +21,8 @@ DESIGNER_CLOSED = (
 )
 PLUGIN_NOT_LOADED = (
     "Designer esta abierto pero el plugin sd_mcp_bridge no responde. "
-    "Revisa Tools > Plugin Manager para ver si aparece y esta activo. "
+    "Si en la barra de menus de Designer aparece 'MCP ○', el puente esta apagado: activalo desde ese menu. "
+    "Si no aparece el menu MCP, revisa Tools > Plugin Manager para ver si el plugin esta activo. "
     "Si acabas de copiarlo, reinicia Designer. Si sigue igual, busca 'sd_mcp_bridge' en la "
     "consola de Designer: otro programa podria estar usando el puerto."
 )

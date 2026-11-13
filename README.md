@@ -4,8 +4,9 @@ Servidor MCP para que Claude cree y modifique grafos de materiales en Adobe Subs
 nodos, conexiones, parámetros, frames, salidas PBR, guardado y exportación. También cocina y renderiza
 sin abrir Designer, con `sbscooker` y `sbsrender`.
 
-Es para Windows y requiere Designer 16.0 o posterior. Funciona con Claude Code y Claude Desktop, verificado en
-Windows 11 con Designer 16.0.7. Cada herramienta que modifica el grafo se deshace con Ctrl+Z en un solo paso.
+Es para Windows. Funciona con Claude Code y Claude Desktop, verificado en Windows 11 con Designer 16.0.7; el plugin
+también está preparado para Designer 13.1 (2024) en adelante (ver [Compatibilidad](#compatibilidad-con-versiones-de-designer)).
+Cada herramienta que modifica el grafo se deshace con Ctrl+Z en un solo paso.
 
 Proyecto independiente y gratuito, sin afiliación con Adobe ni respaldo suyo. Necesitas tu propia licencia de Designer.
 
@@ -16,7 +17,7 @@ Claude ──stdio──> servidor MCP ──TCP 127.0.0.1 + token──> plugin
 
 ## Instalación
 
-Necesitas [uv](https://docs.astral.sh/uv/) y Designer 16.0 o posterior; uv instala Python por ti. El servidor usa los `sbscooker` y `sbsrender`
+Necesitas [uv](https://docs.astral.sh/uv/) y Designer (16.0 o posterior recomendado); uv instala Python por ti. El servidor usa los `sbscooker` y `sbsrender`
 que vienen con Designer, o los del Automation Toolkit si indicas su carpeta. Este proyecto no los incluye: su uso
 se rige por tu licencia de Adobe.
 
@@ -37,7 +38,11 @@ Copy-Item -Recurse designer_plugin\sd_mcp_bridge "$env:USERPROFILE\Documents\Ado
 
 Debe quedar así: `sduserplugins/sd_mcp_bridge/pluginInfo.json` y `sduserplugins/sd_mcp_bridge/sd_mcp_bridge/__init__.py`.
 
-Reinicia Designer. El plugin carga solo y escribe en su consola `Puente MCP escuchando en 127.0.0.1:9817`.
+Reinicia Designer. El plugin carga solo, escribe en su consola `Puente MCP escuchando en 127.0.0.1:9817` y añade
+el menú **MCP** a la barra de menús (ver [El menú MCP](#el-menú-mcp-en-designer)).
+
+Si actualizas desde una versión anterior, borra antes la carpeta `sd_mcp_bridge` vieja: dos copias del plugin
+cargan las dos.
 
 Si prefieres no copiarlo, abre Designer con la variable `SBS_DESIGNER_PYTHON_PATH` apuntando a `designer_plugin`.
 
@@ -91,9 +96,50 @@ Las variables de entorno tienen prioridad sobre `~/.substance-designer-mcp/confi
 | `SD_MCP_SAT_DIR` | `sat_dir` | Carpeta de `sbsrender` y `sbscooker`, si usas otro SAT | Las de Designer |
 | `SD_MCP_PORT` | `bridge_port` | Puerto del plugin | `9817` |
 | `SD_MCP_HOME` | | Carpeta de `config.json` y `bridge.json` | `~/.substance-designer-mcp` |
+| | `autostart` | Encender el puente al abrir Designer | `true` |
 
 El plugin y el servidor son procesos distintos: una variable definida en la configuración de Claude no llega a Designer.
 Para `allowed_dirs` y el puerto, usa `config.json`, que leen los dos.
+
+## El menú MCP en Designer
+
+El plugin añade un menú **MCP** a la barra de menús de Designer y un indicador a la derecha de la barra de estado:
+
+| Indicador | Estado |
+|---|---|
+| `MCP ●` verde | Puente encendido, esperando a Claude |
+| `MCP ◉` cian | Claude está usando una herramienta en este momento |
+| `MCP ○` gris | Puente apagado: Claude no puede tocar Designer |
+| `MCP ✕` | El puente no pudo arrancar (puerto ocupado o `config.json` con errores); el detalle sale en el menú |
+
+Desde el menú:
+
+- **Activar el puente / Desactivar el puente** lo enciende o apaga sin reiniciar Designer. Al apagarlo, Claude recibe
+  un mensaje claro en vez de esperar; al encenderlo se genera un token nuevo.
+- **Activar al abrir Designer** decide si el puente arranca solo. Se guarda como `autostart` en `config.json`.
+
+La primera línea del menú muestra el puerto y la última herramienta usada.
+
+## Compatibilidad con versiones de Designer
+
+| Designer | Año | Qt / Python | Estado |
+|---|---|---|---|
+| 16.x | 2025-2026 | PySide6 / 3.13 | Verificado (16.0.7) |
+| 14.x – 15.x | 2024-2025 | PySide6 / 3.11 | Preparado, sin verificar |
+| 13.1.x | 2024 | PySide2 / 3.9 | Preparado, sin verificar |
+
+Cómo se consigue sin mantener una versión por cada Designer:
+
+- **Qt:** todo el plugin importa Qt a través de `qt_compat.py`, que usa PySide6 y, si no existe, PySide2.
+- **Python:** el código se limita a la sintaxis de Python 3.9; las pruebas lo comprueban archivo por archivo.
+- **API:** las funciones que no existen en todas las versiones se detectan al usarlas. Si falta el deshacer agrupado, la
+  herramienta funciona igual sin él (`get_app_info` lo indica en `undo_supported`); si falta el conversor de texturas a
+  imagen, la vista previa usa un archivo temporal.
+- **Versiones futuras:** no hay listas de versiones dentro del código, así que una versión nueva funciona mientras Adobe
+  mantenga la API de Python. `get_app_info` devuelve la versión de Designer, de Qt y del plugin para diagnosticar.
+
+Las versiones anteriores a la 13.1 no están soportadas. Si pruebas el plugin en 13.1, 14 o 15, abre un issue con lo que
+devuelva `uv run python examples/verify_all_tools.py "C:/carpeta/permitida"` (ver [Pruebas](#pruebas)).
 
 ## Herramientas
 
@@ -216,7 +262,7 @@ uv run python examples/verify_all_tools.py "C:/carpeta/permitida"
 | Mensaje | Qué hacer |
 |---|---|
 | `Substance 3D Designer no esta abierto` | Abre Designer. `cook_sbs`, `render_outputs` y `batch_render` funcionan sin él. |
-| `el plugin sd_mcp_bridge no responde` | Revisa **Tools > Plugin Manager** y la estructura de carpetas del paso 2, y reinicia Designer. |
+| `el plugin sd_mcp_bridge no responde` | Si el menú muestra `MCP ○`, elige **MCP > Activar el puente**. Si no hay menú MCP, revisa **Tools > Plugin Manager** y la estructura de carpetas del paso 2, y reinicia Designer. |
 | `no pudo iniciar el puente` en la consola de Designer | El puerto está ocupado o `config.json` tiene un error. Cambia `bridge_port`. |
 | `fuera de las carpetas permitidas` | Agrega la carpeta a `allowed_dirs` y reinicia Designer. |
 | `Designer no respondio a tiempo` | Puede estar calculando o tener un diálogo abierto. El comando podría ejecutarse igualmente al liberarse. |

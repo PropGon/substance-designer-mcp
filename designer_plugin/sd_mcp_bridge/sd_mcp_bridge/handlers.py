@@ -12,20 +12,18 @@ import math
 import os
 import re
 import sys
+import tempfile
 import traceback
 
 import sd
-from PySide6 import QtCore
 from sd.api import sdbasetypes
 from sd.api.apiexception import APIException
-from sd.api.qtforpythonuimgrwrapper import QtForPythonUIMgrWrapper
 from sd.api.sbs.sdsbsarexporter import SDSBSARExporter
 from sd.api.sbs.sdsbscompgraph import SDSBSCompGraph
 from sd.api.sdapplication import SDApplicationPath
 from sd.api.sdbasetypes import ColorRGBA, float2
 from sd.api.sdgraphobjectcomment import SDGraphObjectComment
 from sd.api.sdgraphobjectframe import SDGraphObjectFrame
-from sd.api.sdhistoryutils import SDHistoryUtils
 from sd.api.sdproperty import SDPropertyCategory, SDPropertyInheritanceMethod
 from sd.api.sdtypearray import SDTypeArray
 from sd.api.sdtypeenum import SDTypeEnum
@@ -38,6 +36,20 @@ from sd.api.sdvaluestring import SDValueString
 from sd.api.sdvaluestruct import SDValueStruct
 from sd.api.sdvalueusage import SDValueUsage
 from sd.ui.graphgrid import GraphGrid
+
+from .qt_compat import QT_BINDING, QtCore, QtGui
+
+# Optional across Designer versions: detected at import instead of assumed.
+try:
+    from sd.api.qtforpythonuimgrwrapper import QtForPythonUIMgrWrapper
+except ImportError:
+    QtForPythonUIMgrWrapper = None
+try:
+    from sd.api.sdhistoryutils import SDHistoryUtils
+except ImportError:
+    SDHistoryUtils = None
+
+PLUGIN_VERSION = "0.2.0"
 
 from .coercion import coerce_scalar
 from .layout import compute_layout
@@ -339,6 +351,9 @@ def get_app_info(_params: dict) -> dict:
         "designer_version": app.getVersion(),
         "installation_dir": app.getPath(SDApplicationPath.InstallationDir),
         "python_version": sys.version.split()[0],
+        "qt_binding": QT_BINDING,
+        "plugin_version": PLUGIN_VERSION,
+        "undo_supported": _undo_group() is not None,
         "executed_on_main_thread": _on_main_thread(),
         "active_graph": graph.getIdentifier() if graph else None,
         "active_package": _describe_package(graph.getPackage()) if graph else None,
@@ -559,6 +574,33 @@ def create_node(params: dict) -> dict:
     return _describe_node_full(node)
 
 
+def _texture_to_image(texture):
+    converter = getattr(QtForPythonUIMgrWrapper, "convertSDTextureToQImage", None)
+    if converter is not None:
+        try:
+            image = converter(texture)
+            if not image.isNull():
+                return image
+        except Exception:
+            pass
+    # Fallback for versions without the converter: SDTexture.save has existed for years.
+    handle, path = tempfile.mkstemp(suffix=".png", prefix="sd_mcp_preview_")
+    os.close(handle)
+    try:
+        texture.save(path)
+        image = QtGui.QImage(path)
+        return image.copy()
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _undo_group():
+    return getattr(SDHistoryUtils, "UndoGroup", None) if SDHistoryUtils is not None else None
+
+
 def get_node_preview(params: dict) -> dict:
     graph = _resolve_graph(params)
     node = _resolve_node(graph, params.get("node_id"))
@@ -585,7 +627,7 @@ def get_node_preview(params: dict) -> dict:
             "Designer solo calcula los nodos que llegan a un nodo de salida. Conecta este nodo, o uno "
             "posterior, a una salida (create_output_node) y vuelve a pedir la vista previa.",
         )
-    image = QtForPythonUIMgrWrapper.convertSDTextureToQImage(texture)
+    image = _texture_to_image(texture)
     if image.isNull():
         raise BridgeError("internal", "Designer devolvio una textura que no se pudo convertir en imagen.")
     original = [image.width(), image.height()]
@@ -905,8 +947,9 @@ def execute(command: str, params: dict):
     if not _on_main_thread():
         raise BridgeError("wrong_thread", "El comando no se esta ejecutando en el hilo principal.")
     try:
-        if command in UNDOABLE:
-            with SDHistoryUtils.UndoGroup(f"MCP: {command}"):
+        undo_group = _undo_group()
+        if command in UNDOABLE and undo_group is not None:
+            with undo_group(f"MCP: {command}"):
                 return handler(params)
         return handler(params)
     except APIException as exc:

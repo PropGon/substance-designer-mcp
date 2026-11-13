@@ -39,14 +39,36 @@ def discovery_path() -> Path:
     return bridge_home() / "bridge.json"
 
 
+def read_config() -> dict:
+    config_file = bridge_home() / "config.json"
+    if not config_file.is_file():
+        return {}
+    data = json.loads(config_file.read_text("utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"{config_file} debe contener un objeto JSON.")
+    return data
+
+
+def write_config_value(key: str, value) -> None:
+    """Updates one key and keeps everything else the user wrote."""
+    config_file = bridge_home() / "config.json"
+    data = read_config()
+    data[key] = value
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    temporary = config_file.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(data, indent=2, ensure_ascii=False), "utf-8")
+    os.replace(temporary, config_file)
+
+
+def autostart_enabled() -> bool:
+    return read_config().get("autostart", True) is not False
+
+
 def configured_port() -> int:
     env_port = os.environ.get("SD_MCP_PORT")
     if env_port:
         return int(env_port)
-    config_file = bridge_home() / "config.json"
-    if config_file.is_file():
-        return int(json.loads(config_file.read_text("utf-8")).get("bridge_port", DEFAULT_PORT))
-    return DEFAULT_PORT
+    return int(read_config().get("bridge_port", DEFAULT_PORT))
 
 
 def write_discovery(port: int, token: str) -> Path:

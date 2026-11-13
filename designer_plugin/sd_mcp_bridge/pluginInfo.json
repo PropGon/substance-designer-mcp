@@ -1,9 +1,9 @@
 {
   "metadata_format_version": "1",
   "name": "sd_mcp_bridge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "PropGon",
   "email": "tools@propgon.com",
-  "min_designer_version": "16.0.0",
+  "min_designer_version": "13.1.0",
   "platform": "any"
 }
