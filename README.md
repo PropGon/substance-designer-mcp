@@ -1,272 +1,274 @@
 # substance-designer-mcp
 
-Servidor MCP para que Claude cree y modifique grafos de materiales en Adobe Substance 3D Designer:
-nodos, conexiones, parámetros, frames, salidas PBR, guardado y exportación. También cocina y renderiza
-sin abrir Designer, con `sbscooker` y `sbsrender`.
+An MCP server that lets Claude create and modify material graphs in Adobe Substance 3D Designer:
+nodes, connections, parameters, frames, PBR outputs, saving and export. It also cooks and renders
+without opening Designer, using `sbscooker` and `sbsrender`.
 
-Es para Windows. Funciona con Claude Code y Claude Desktop, verificado en Windows 11 con Designer 16.0.7; el plugin
-también está preparado para Designer 13.1 (2024) en adelante (ver [Compatibilidad](#compatibilidad-con-versiones-de-designer)).
-Cada herramienta que modifica el grafo se deshace con Ctrl+Z en un solo paso.
+Windows only. It works with Claude Code and Claude Desktop, verified on Windows 11 with Designer 16.0.7; the plugin
+is also prepared for Designer 13.1 (2024) and later (see [Designer version compatibility](#designer-version-compatibility)).
+Every tool that modifies the graph can be undone with Ctrl+Z in a single step.
 
-Proyecto independiente y gratuito, sin afiliación con Adobe ni respaldo suyo. Necesitas tu propia licencia de Designer.
+An independent, free project, with no affiliation with or endorsement from Adobe. You need your own Designer license.
 
 ```
-Claude ──stdio──> servidor MCP ──TCP 127.0.0.1 + token──> plugin ──señal Qt──> hilo principal de Designer
-                       └──────> sbscooker / sbsrender (sin Designer)
+Claude ──stdio──> MCP server ──TCP 127.0.0.1 + token──> plugin ──Qt signal──> Designer main thread
+                       └──────> sbscooker / sbsrender (no Designer needed)
 ```
 
-## Instalación
+## Installation
 
-Necesitas [uv](https://docs.astral.sh/uv/) y Designer (16.0 o posterior recomendado); uv instala Python por ti. El servidor usa los `sbscooker` y `sbsrender`
-que vienen con Designer, o los del Automation Toolkit si indicas su carpeta. Este proyecto no los incluye: su uso
-se rige por tu licencia de Adobe.
+You need [uv](https://docs.astral.sh/uv/) and Designer (16.0 or later recommended); uv installs Python for you. The server uses the `sbscooker` and `sbsrender`
+that ship with Designer, or those from the Automation Toolkit if you point it to their folder. This project does not include them: their use
+is governed by your Adobe license.
 
-### 1. Instalar las dependencias
+### 1. Install the dependencies
 
 ```bash
-uv --directory "C:/ruta/a/substance-designer-mcp" sync
+uv --directory "C:/path/to/substance-designer-mcp" sync
 ```
 
-### 2. Copiar el plugin a Designer
+### 2. Copy the plugin into Designer
 
-Con Designer cerrado y desde la carpeta del proyecto, en PowerShell, crea la carpeta de plugins si no existe y copia el plugin:
+With Designer closed and from the project folder, in PowerShell, create the plugins folder if it doesn't exist and copy the plugin:
 
 ```powershell
 New-Item -ItemType Directory -Force "$env:USERPROFILE\Documents\Adobe\Adobe Substance 3D Designer\python\sduserplugins"
 Copy-Item -Recurse designer_plugin\sd_mcp_bridge "$env:USERPROFILE\Documents\Adobe\Adobe Substance 3D Designer\python\sduserplugins\sd_mcp_bridge"
 ```
 
-Debe quedar así: `sduserplugins/sd_mcp_bridge/pluginInfo.json` y `sduserplugins/sd_mcp_bridge/sd_mcp_bridge/__init__.py`.
+The result should be: `sduserplugins/sd_mcp_bridge/pluginInfo.json` and `sduserplugins/sd_mcp_bridge/sd_mcp_bridge/__init__.py`.
 
-Reinicia Designer. El plugin carga solo, escribe en su consola `Puente MCP escuchando en 127.0.0.1:9817` y añade
-el menú **MCP** a la barra de menús (ver [El menú MCP](#el-menú-mcp-en-designer)).
+Restart Designer. The plugin loads by itself, writes `Puente MCP escuchando en 127.0.0.1:9817` ("MCP bridge listening on…") to its console and adds
+the **MCP** menu to the menu bar (see [The MCP menu in Designer](#the-mcp-menu-in-designer)).
 
-Si actualizas desde una versión anterior, borra antes la carpeta `sd_mcp_bridge` vieja: dos copias del plugin
-cargan las dos.
+If you are upgrading from an earlier version, delete the old `sd_mcp_bridge` folder first: if two copies of the plugin
+are present, both load.
 
-Si prefieres no copiarlo, abre Designer con la variable `SBS_DESIGNER_PYTHON_PATH` apuntando a `designer_plugin`.
+If you prefer not to copy it, start Designer with the `SBS_DESIGNER_PYTHON_PATH` variable pointing to `designer_plugin`.
 
-### 3. Elegir las carpetas permitidas
+### 3. Choose the allowed folders
 
-Copia `config.example.json` a `~/.substance-designer-mcp/config.json` y edita `allowed_dirs`. Sin ese archivo, la
-única carpeta permitida es `~/Documents/SubstanceDesignerMCP`. Reinicia Designer tras cambiar el puerto.
+Copy `config.example.json` to `~/.substance-designer-mcp/config.json` and edit `allowed_dirs`. Without that file, the
+only allowed folder is `~/Documents/SubstanceDesignerMCP`. Restart Designer after changing the port.
 
-### 4. Conectar Claude
+### 4. Connect Claude
 
-**Claude Code**, en Git Bash:
+**Claude Code**, in Git Bash:
 
 ```bash
-claude mcp add --scope user substance-designer -- uv --directory "C:/ruta/a/substance-designer-mcp" run substance-designer-mcp
+claude mcp add --scope user substance-designer -- uv --directory "C:/path/to/substance-designer-mcp" run substance-designer-mcp
 ```
 
-En PowerShell, `--` debe ir entre comillas; sin ellas, el comando falla con `unknown option '--directory'`:
+In PowerShell, `--` must go in quotes; without them, the command fails with `unknown option '--directory'`:
 
 ```powershell
-claude mcp add --scope user substance-designer '--' uv --directory "C:/ruta/a/substance-designer-mcp" run substance-designer-mcp
+claude mcp add --scope user substance-designer '--' uv --directory "C:/path/to/substance-designer-mcp" run substance-designer-mcp
 ```
 
-`claude mcp list` debe mostrar el servidor como conectado.
+`claude mcp list` should show the server as connected.
 
-**Claude Desktop:** edita `claude_desktop_config.json`. Según cómo se instaló la app, está en
-`%LOCALAPPDATA%\Claude-Data\<carpeta>\` o en `%APPDATA%\Claude\`. Añade esto dentro del archivo, sin borrar lo que ya
-tenga, y cierra Claude Desktop por completo antes de volver a abrirlo. Usa la ruta completa de `uv`, porque Claude
-Desktop puede no ver tu `PATH`:
+**Claude Desktop:** edit `claude_desktop_config.json`. Depending on how the app was installed, it is in
+`%LOCALAPPDATA%\Claude-Data\<folder>\` or in `%APPDATA%\Claude\`. Add this inside the file, without deleting what it
+already has, and close Claude Desktop completely before opening it again. Use the full path to `uv`, because Claude
+Desktop may not see your `PATH`:
 
 ```json
 {
   "mcpServers": {
     "substance-designer": {
-      "command": "C:/Users/TU_USUARIO/.local/bin/uv.exe",
-      "args": ["--directory", "C:/ruta/a/substance-designer-mcp", "run", "substance-designer-mcp"]
+      "command": "C:/Users/YOUR_USER/.local/bin/uv.exe",
+      "args": ["--directory", "C:/path/to/substance-designer-mcp", "run", "substance-designer-mcp"]
     }
   }
 }
 ```
 
-Para comprobarlo, pídele a Claude: *"usa get_app_info de Substance Designer"*.
+To check it, ask Claude: *"use Substance Designer's get_app_info"*.
 
-## Configuración
+## Configuration
 
-Las variables de entorno tienen prioridad sobre `~/.substance-designer-mcp/config.json`.
+Environment variables take precedence over `~/.substance-designer-mcp/config.json`.
 
-| Variable | Clave en config.json | Para qué sirve | Por defecto |
+| Variable | config.json key | What it is for | Default |
 |---|---|---|---|
-| `SD_MCP_ALLOWED_DIRS` | `allowed_dirs` | Carpetas permitidas (separadas por `;`) | `~/Documents/SubstanceDesignerMCP` |
-| `SD_MCP_DESIGNER_DIR` | `designer_dir` | Carpeta de Designer | Se detecta sola |
-| `SD_MCP_SAT_DIR` | `sat_dir` | Carpeta de `sbsrender` y `sbscooker`, si usas otro SAT | Las de Designer |
-| `SD_MCP_PORT` | `bridge_port` | Puerto del plugin | `9817` |
-| `SD_MCP_HOME` | | Carpeta de `config.json` y `bridge.json` | `~/.substance-designer-mcp` |
-| | `autostart` | Encender el puente al abrir Designer | `true` |
+| `SD_MCP_ALLOWED_DIRS` | `allowed_dirs` | Allowed folders (separated by `;`) | `~/Documents/SubstanceDesignerMCP` |
+| `SD_MCP_DESIGNER_DIR` | `designer_dir` | Designer folder | Detected automatically |
+| `SD_MCP_SAT_DIR` | `sat_dir` | Folder of `sbsrender` and `sbscooker`, if you use a different SAT | Those of Designer |
+| `SD_MCP_PORT` | `bridge_port` | Plugin port | `9817` |
+| `SD_MCP_HOME` | | Folder of `config.json` and `bridge.json` | `~/.substance-designer-mcp` |
+| | `autostart` | Turn the bridge on when Designer opens | `true` |
 
-El plugin y el servidor son procesos distintos: una variable definida en la configuración de Claude no llega a Designer.
-Para `allowed_dirs` y el puerto, usa `config.json`, que leen los dos.
+The plugin and the server are separate processes: a variable defined in Claude's configuration does not reach Designer.
+For `allowed_dirs` and the port, use `config.json`, which both read.
 
-## El menú MCP en Designer
+## The MCP menu in Designer
 
-El plugin añade un menú **MCP** a la barra de menús de Designer y un indicador a la derecha de la barra de estado:
+The plugin adds an **MCP** menu to Designer's menu bar and an indicator on the right of the status bar:
 
-| Indicador | Estado |
+| Indicator | State |
 |---|---|
-| `MCP ●` verde | Puente encendido, esperando a Claude |
-| `MCP ◉` cian | Claude está usando una herramienta en este momento |
-| `MCP ○` gris | Puente apagado: Claude no puede tocar Designer |
-| `MCP ✕` | El puente no pudo arrancar (puerto ocupado o `config.json` con errores); el detalle sale en el menú |
+| `MCP ●` green | Bridge on, waiting for Claude |
+| `MCP ◉` cyan | Claude is using a tool right now |
+| `MCP ○` gray | Bridge off: Claude can't touch Designer |
+| `MCP ✕` | The bridge could not start (port in use or `config.json` with errors); the details appear in the menu |
 
-Desde el menú:
+From the menu:
 
-- **Activar el puente / Desactivar el puente** lo enciende o apaga sin reiniciar Designer. Al apagarlo, Claude recibe
-  un mensaje claro en vez de esperar; al encenderlo se genera un token nuevo.
-- **Activar al abrir Designer** decide si el puente arranca solo. Se guarda como `autostart` en `config.json`.
+- **Activar el puente / Desactivar el puente** (enable / disable the bridge) turns it on or off without restarting Designer. When it is off, Claude gets
+  a clear message instead of waiting; when it is turned on, a new token is generated.
+- **Activar al abrir Designer** (enable on Designer startup) decides whether the bridge starts by itself. It is saved as `autostart` in `config.json`.
 
-La primera línea del menú muestra el puerto y la última herramienta usada.
+The first line of the menu shows the port and the last tool used.
 
-## Compatibilidad con versiones de Designer
+## Designer version compatibility
 
-| Designer | Año | Qt / Python | Estado |
+| Designer | Year | Qt / Python | Status |
 |---|---|---|---|
-| 16.x | 2025-2026 | PySide6 / 3.13 | Verificado (16.0.7) |
-| 14.x – 15.x | 2024-2025 | PySide6 / 3.11 | Preparado, sin verificar |
-| 13.1.x | 2024 | PySide2 / 3.9 | Preparado, sin verificar |
+| 16.x | 2025-2026 | PySide6 / 3.13 | Verified (16.0.7) |
+| 14.x – 15.x | 2024-2025 | PySide6 / 3.11 | Prepared, not verified |
+| 13.1.x | 2024 | PySide2 / 3.9 | Prepared, not verified |
 
-Cómo se consigue sin mantener una versión por cada Designer:
+How this is achieved without maintaining one version per Designer release:
 
-- **Qt:** todo el plugin importa Qt a través de `qt_compat.py`, que usa PySide6 y, si no existe, PySide2.
-- **Python:** el código se limita a la sintaxis de Python 3.9; las pruebas lo comprueban archivo por archivo.
-- **API:** las funciones que no existen en todas las versiones se detectan al usarlas. Si falta el deshacer agrupado, la
-  herramienta funciona igual sin él (`get_app_info` lo indica en `undo_supported`); si falta el conversor de texturas a
-  imagen, la vista previa usa un archivo temporal.
-- **Versiones futuras:** no hay listas de versiones dentro del código, así que una versión nueva funciona mientras Adobe
-  mantenga la API de Python. `get_app_info` devuelve la versión de Designer, de Qt y del plugin para diagnosticar.
+- **Qt:** the whole plugin imports Qt through `qt_compat.py`, which uses PySide6 and, if it is not available, PySide2.
+- **Python:** the code is limited to Python 3.9 syntax; the tests check it file by file.
+- **API:** functions that don't exist in every version are detected when they are used. If grouped undo is missing, the
+  tool works the same without it (`get_app_info` reports it in `undo_supported`); if the texture-to-image converter is missing,
+  the preview uses a temporary file.
+- **Future versions:** there are no version lists in the code, so a new version works as long as Adobe
+  keeps the Python API. `get_app_info` returns the Designer, Qt and plugin versions for diagnosis.
 
-Las versiones anteriores a la 13.1 no están soportadas. Si pruebas el plugin en 13.1, 14 o 15, abre un issue con lo que
-devuelva `uv run python examples/verify_all_tools.py "C:/carpeta/permitida"` (ver [Pruebas](#pruebas)).
+Versions earlier than 13.1 are not supported. If you try the plugin on 13.1, 14 or 15, open an issue with what
+`uv run python examples/verify_all_tools.py "C:/allowed/folder"` returns (see [Tests](#tests)).
 
-## Herramientas
+## Tools
 
-| Herramienta | Designer | API o comando |
+| Tool | Designer | API or command |
 |---|---|---|
-| `get_app_info` | Sí | `SDApplication.getVersion`, `getPath`, `SDUIMgr.getCurrentGraph` |
-| `list_graphs` | Sí | `SDPackageMgr.getUserPackages`, `SDPackage.getChildrenResources` |
-| `open_graph` | Sí | `SDPackageMgr.loadUserPackage`, `SDUIMgr.openResourceInEditor` |
-| `create_graph` | Sí | `SDSBSCompGraph.sNew`, `setDefaultParentSize`, `SDPackageMgr.newUserPackage` |
-| `list_nodes` | Sí | `SDGraph.getNodes`, `getGraphObjects` |
-| `get_node_info` | Sí | `SDNode.getDefinition`, `getProperties`, `getPropertyConnections` |
-| `get_node_preview` | Sí | `SDSBSCompGraph.compute`, `SDValueTexture`, `QtForPythonUIMgrWrapper.convertSDTextureToQImage` |
-| `search_library` | No | Busca en `resources/packages` de Designer |
-| `create_node` | Sí | `SDGraph.newNode`, `newInstanceNode`; devuelve entradas, salidas y parámetros |
-| `delete_node` | Sí | `SDGraph.deleteNode` |
-| `connect_nodes` | Sí | `SDNode.newPropertyConnectionFromId` |
-| `set_node_parameter` / `get_node_parameter` | Sí | `SDNode.setPropertyValue`, `getPropertyValue`, clases `SDValue*`, `SDValueArray` y `SDValueStruct` para gradientes y curvas |
-| `create_frame` | Sí | `SDGraphObjectFrame.sNew`, `setTitle`, `setSize`, `setColor` |
-| `create_comment` | Sí | `SDGraphObjectComment.sNew`, `sNewAsChild` |
-| `expose_parameter` | Sí | `SDResource.newProperty`, `setPropertyAnnotationValueFromId`, `SDNode.newPropertyGraph` |
-| `create_output_node` | Sí | `sbs::compositing::output`, `SDUsage.sNew`, `setAnnotationPropertyValueFromId` |
-| `auto_layout` | Sí | Algoritmo propio con `SDNode.setPosition` |
-| `save_package` | Sí | `SDPackageMgr.savePackage`, `savePackageAs` |
-| `export_sbsar` | Sí | `SDSBSARExporter.exportPackageToSBSAR` |
-| `run_python` | Sí | `exec` en el hilo principal |
+| `get_app_info` | Yes | `SDApplication.getVersion`, `getPath`, `SDUIMgr.getCurrentGraph` |
+| `list_graphs` | Yes | `SDPackageMgr.getUserPackages`, `SDPackage.getChildrenResources` |
+| `open_graph` | Yes | `SDPackageMgr.loadUserPackage`, `SDUIMgr.openResourceInEditor` |
+| `create_graph` | Yes | `SDSBSCompGraph.sNew`, `setDefaultParentSize`, `SDPackageMgr.newUserPackage` |
+| `list_nodes` | Yes | `SDGraph.getNodes`, `getGraphObjects` |
+| `get_node_info` | Yes | `SDNode.getDefinition`, `getProperties`, `getPropertyConnections` |
+| `get_node_preview` | Yes | `SDSBSCompGraph.compute`, `SDValueTexture`, `QtForPythonUIMgrWrapper.convertSDTextureToQImage` |
+| `search_library` | No | Searches Designer's `resources/packages` |
+| `create_node` | Yes | `SDGraph.newNode`, `newInstanceNode`; returns inputs, outputs and parameters |
+| `delete_node` | Yes | `SDGraph.deleteNode` |
+| `connect_nodes` | Yes | `SDNode.newPropertyConnectionFromId` |
+| `set_node_parameter` / `get_node_parameter` | Yes | `SDNode.setPropertyValue`, `getPropertyValue`, `SDValue*`, `SDValueArray` and `SDValueStruct` classes for gradients and curves |
+| `create_frame` | Yes | `SDGraphObjectFrame.sNew`, `setTitle`, `setSize`, `setColor` |
+| `create_comment` | Yes | `SDGraphObjectComment.sNew`, `sNewAsChild` |
+| `expose_parameter` | Yes | `SDResource.newProperty`, `setPropertyAnnotationValueFromId`, `SDNode.newPropertyGraph` |
+| `create_output_node` | Yes | `sbs::compositing::output`, `SDUsage.sNew`, `setAnnotationPropertyValueFromId` |
+| `auto_layout` | Yes | Custom algorithm with `SDNode.setPosition` |
+| `save_package` | Yes | `SDPackageMgr.savePackage`, `savePackageAs` |
+| `export_sbsar` | Yes | `SDSBSARExporter.exportPackageToSBSAR` |
+| `run_python` | Yes | `exec` on the main thread |
 | `cook_sbs` | No | `sbscooker --inputs --output-path --output-name` |
-| `render_outputs` | No | `sbsrender info` y `sbsrender render --set-value ...` |
-| `batch_render` | No | `sbsrender render`, una vez por archivo y juego de parámetros |
+| `render_outputs` | No | `sbsrender info` and `sbsrender render --set-value ...` |
+| `batch_render` | No | `sbsrender render`, once per file and parameter set |
 
-Los hilos siguen el [patrón de la documentación de Adobe](https://experienceleague.adobe.com/en/docs/substance-3d-designer/using/scripting/using-threads):
-el socket vive en un `QThread` y cada comando llega al hilo principal por una señal con `Qt.QueuedConnection`. El ejemplo
-de esa página importa PySide2, pero Designer 16 trae PySide6.
+Threading follows the [pattern in Adobe's documentation](https://experienceleague.adobe.com/en/docs/substance-3d-designer/using/scripting/using-threads):
+the socket lives in a `QThread` and each command reaches the main thread through a signal with `Qt.QueuedConnection`. The example
+on that page imports PySide2, but Designer 16 ships PySide6.
 
-Las firmas salen de la API instalada (`resources/python/sd`) y de sus ejemplos (`resources/python/samples`), más fiables que la
-web para tu versión. En Designer: **Help > Python API Documentation**.
+Signatures come from the installed API (`resources/python/sd`) and its examples (`resources/python/samples`), which are more reliable than the
+web for your version. In Designer: **Help > Python API Documentation**.
 
-## Limitaciones de la API
+## API limitations
 
-Todas las herramientas funcionan, con estas diferencias respecto a lo que cabría esperar:
+All the tools work, with these differences from what you might expect:
 
-- **`auto_layout` no es de Adobe.** La API no ofrece layout automático; `sd.tools.graphlayout` solo alinea y ajusta a la
-  cuadrícula. Este ordena por columnas, y no mueve frames ni comentarios.
-- **Los frames solo agrupan visualmente.** `SDGraphObjectFrame` no sabe qué nodos contiene: colócalo a su alrededor.
-  Los objetos de grafo tampoco tienen identificador, por eso no hay herramienta para borrarlos.
-- **El tamaño del grafo no viaja al `.sbsar`.** Sin `width` y `height`, `sbsrender` usa 256×256 aunque el grafo sea de 1024.
-  Un tamaño fijo (`Absolute`) sí se conservaría, pero `sbscooker` dejaría de exponer `$outputsize` y no se podría cambiar al renderizar.
-- **Las bibliotecas aparecen en el Explorer de Designer.** `loadUserPackage` es la única vía para usar filtros como Perlin Noise.
-  `list_graphs` y `get_app_info` las ocultan, pero Designer las muestra.
-- **La vista previa solo funciona en nodos que llegan a una salida.** Designer no calcula nodos sueltos; `get_node_preview`
-  lo explica y pide conectar el nodo, o uno posterior, a `create_output_node`.
-- **Gradientes y curvas van como lista de puntos.** `gradientrgba`: `[{"position": 0, "value": [r, g, b, a]}, ...]`, con
-  `midpoint` opcional (0.5). `curveluminance` y las demás curvas: `[{"position": [x, y]}, ...]`, con `left` y `right`
-  opcionales (por defecto, el propio punto). Otras estructuras con campos distintos se aceptan con todos sus campos.
-- **`expose_parameter` crea una función en el nodo.** Enlaza con `sbs::function::get_float1` y similares, que no salen en los
-  ejemplos de Adobe pero sí se comprobaron en Designer 16. Un parámetro ya controlado por una función se rechaza.
+- **`auto_layout` is not from Adobe.** The API offers no automatic layout; `sd.tools.graphlayout` only aligns and snaps to the
+  grid. This one arranges nodes in columns, and does not move frames or comments.
+- **Frames only group visually.** `SDGraphObjectFrame` doesn't know which nodes it contains: place it around them.
+  Graph objects also have no identifier, which is why there is no tool to delete them.
+- **The graph size does not travel to the `.sbsar`.** Without `width` and `height`, `sbsrender` uses 256×256 even if the graph is 1024.
+  A fixed size (`Absolute`) would be preserved, but `sbscooker` would stop exposing `$outputsize` and it could not be changed when rendering.
+- **Libraries appear in Designer's Explorer.** `loadUserPackage` is the only way to use filters such as Perlin Noise.
+  `list_graphs` and `get_app_info` hide them, but Designer shows them.
+- **The preview only works on nodes that reach an output.** Designer doesn't compute loose nodes; `get_node_preview`
+  explains this and asks you to connect the node, or a later one, to `create_output_node`.
+- **Gradients and curves are passed as a list of points.** `gradientrgba`: `[{"position": 0, "value": [r, g, b, a]}, ...]`, with an
+  optional `midpoint` (0.5). `curveluminance` and the other curves: `[{"position": [x, y]}, ...]`, with optional `left` and `right`
+  (by default, the point itself). Other structures with different fields are accepted with all of their fields.
+- **`expose_parameter` creates a function on the node.** It links with `sbs::function::get_float1` and similar ones, which don't appear in
+  Adobe's examples but were verified in Designer 16. A parameter that is already controlled by a function is rejected.
 
-Comportamientos que el código ya tiene en cuenta, útiles si lo modificas:
+Behaviors the code already takes into account, useful if you modify it:
 
-- `APIException` hereda de `BaseException`, así que un `except Exception` no la captura.
-- En una conexión vista desde un nodo, `getInputPropertyNode()` es siempre el otro extremo, no el destino.
-- `sbsrender` ignora los `--set-value` desconocidos sin avisar; `render_outputs` los comprueba antes con `sbsrender info`.
+- `APIException` inherits from `BaseException`, so an `except Exception` does not catch it.
+- On a connection seen from a node, `getInputPropertyNode()` is always the other end, not the destination.
+- `sbsrender` silently ignores unknown `--set-value` options; `render_outputs` checks them beforehand with `sbsrender info`.
 
-## Seguridad
+## Security
 
-- El plugin solo escucha en `127.0.0.1` (no es configurable) y exige un token aleatorio que se regenera en cada inicio.
-  Usa TCP en vez de HTTP para que una página web no pueda enviarle comandos.
-- Solo acepta los comandos de una lista cerrada y valida los parámetros antes de tocar el grafo.
-- Toda ruta se resuelve (incluidos `..` y symlinks) y debe caer dentro de `allowed_dirs`. Sobrescribir otro archivo requiere `overwrite=true`.
+- The plugin only listens on `127.0.0.1` (not configurable) and requires a random token that is regenerated at every startup.
+  It uses TCP instead of HTTP so that a web page cannot send it commands.
+- It only accepts commands from a closed list and validates the parameters before touching the graph.
+- Every path is resolved (including `..` and symlinks) and must fall inside `allowed_dirs`. Overwriting another file requires `overwrite=true`.
 
-Dos límites que conviene conocer:
+Two limits worth knowing:
 
-- **`run_python` queda fuera de todo esto.** Ejecuta cualquier código con tus permisos, y la lista de carpetas no aplica.
-  `confirmed=true` lo escribe el propio modelo, así que la aprobación real es la de tu cliente:
-  deja esa herramienta en "preguntar siempre" y lee el código antes de aceptar.
-- **El token no protege de otros programas de tu usuario**, que pueden leer `bridge.json`. Protege de páginas web y de otros usuarios.
+- **`run_python` is outside all of this.** It runs any code with your permissions, and the folder list does not apply.
+  `confirmed=true` is written by the model itself, so the real approval is your client's:
+  leave that tool on "ask every time" and read the code before accepting.
+- **The token does not protect against other programs of your user**, which can read `bridge.json`. It protects against web pages and other users.
 
-## Ejemplo: Template_Material
+## Example: Template_Material
 
-`examples/Template_Material.sbs` es el resultado de `build_template_material.py`, que usa solo herramientas MCP. Tiene frames
-Shapes, Details, Color y Outputs; una salida por mapa PBR (`baseColor`, `normal`, `roughness`, `metallic`, `height`,
-`ambientOcclusion`) y 3 parámetros: `base_tint`, `noise_scale` y `normal_intensity`.
+`examples/Template_Material.sbs` is the result of `build_template_material.py`, which uses only MCP tools. It has the frames
+Shapes, Details, Color and Outputs; one output per PBR map (`baseColor`, `normal`, `roughness`, `metallic`, `height`,
+`ambientOcclusion`) and 3 parameters: `base_tint`, `noise_scale` and `normal_intensity`.
 
-El `.sbsar` no se incluye: lo genera el script. Con Designer abierto y la carpeta de salida dentro de `allowed_dirs`:
-
-```bash
-uv run python examples/build_template_material.py "C:/Users/TU_USUARIO/Documents/SubstanceDesignerMCP"
-```
-
-Para comprobar que cada parámetro cambia solo los mapas esperados (usa ese `.sbsar` y no necesita Designer):
+The `.sbsar` is not included: the script generates it. With Designer open and the output folder inside `allowed_dirs`:
 
 ```bash
-uv run python examples/verify_template_parameters.py "C:/Users/TU_USUARIO/Documents/SubstanceDesignerMCP"
+uv run python examples/build_template_material.py "C:/Users/YOUR_USER/Documents/SubstanceDesignerMCP"
 ```
 
-Ejemplos de lo que puedes pedirle a Claude:
+To check that each parameter changes only the expected maps (it uses that `.sbsar` and does not need Designer):
 
-- *"Crea un grafo de 2048 llamado Ladrillo, con un Perlin Noise conectado a un normal y a su salida de normal."*
-- *"Expón la intensidad del normal como parámetro de 0 a 5 y ordena el grafo."*
-- *"Cocina Ladrillo.sbs y renderiza los mapas a 2048 en PNG de 16 bits."*
-- *"Renderiza estos tres .sbsar con noise_scale 4, 8 y 16, cada uno en su carpeta."*
-- *"Busca un ruido tipo nubes, conéctalo a un gradient map de negro a rojo y amarillo, como lava, y mira la vista previa
-  antes de darlo por bueno."*
+```bash
+uv run python examples/verify_template_parameters.py "C:/Users/YOUR_USER/Documents/SubstanceDesignerMCP"
+```
 
-## Pruebas
+Examples of what you can ask Claude:
+
+- *"Create a 2048 graph called Brick, with a Perlin Noise connected to a normal and to its normal output."*
+- *"Expose the normal's intensity as a parameter from 0 to 5 and arrange the graph."*
+- *"Cook Brick.sbs and render the maps at 2048 as 16-bit PNG."*
+- *"Render these three .sbsar files with noise_scale 4, 8 and 16, each in its own folder."*
+- *"Look for a clouds-type noise, connect it to a gradient map from black to red and yellow, like lava, and check the preview
+  before approving it."*
+
+## Tests
 
 ```bash
 uv run pytest
 ```
 
-Cubren lo que no depende de Designer: protocolo, rutas, detección de la instalación, argumentos de `sbsrender`, layout y la cadena MCP completa con un plugin simulado.
+They cover what does not depend on Designer: protocol, paths, installation detection, `sbsrender` arguments, layout and the full MCP chain with a simulated plugin.
 
-Para probar con Designer de verdad (crea un grafo desechable y comprueba también los rechazos):
+To test with a real Designer (it creates a disposable graph and also checks the rejections):
 
 ```bash
-uv run python examples/verify_all_tools.py "C:/carpeta/permitida"
+uv run python examples/verify_all_tools.py "C:/allowed/folder"
 ```
 
-## Problemas frecuentes
+## Common problems
 
-| Mensaje | Qué hacer |
+The plugin's menu labels and messages are in Spanish; the English translation is given in parentheses.
+
+| Message | What to do |
 |---|---|
-| `Substance 3D Designer no esta abierto` | Abre Designer. `cook_sbs`, `render_outputs` y `batch_render` funcionan sin él. |
-| `el plugin sd_mcp_bridge no responde` | Si el menú muestra `MCP ○`, elige **MCP > Activar el puente**. Si no hay menú MCP, revisa **Tools > Plugin Manager** y la estructura de carpetas del paso 2, y reinicia Designer. |
-| `no pudo iniciar el puente` en la consola de Designer | El puerto está ocupado o `config.json` tiene un error. Cambia `bridge_port`. |
-| `fuera de las carpetas permitidas` | Agrega la carpeta a `allowed_dirs` y reinicia Designer. |
-| `Designer no respondio a tiempo` | Puede estar calculando o tener un diálogo abierto. El comando podría ejecutarse igualmente al liberarse. |
+| `Substance 3D Designer no esta abierto` (Substance 3D Designer is not open) | Open Designer. `cook_sbs`, `render_outputs` and `batch_render` work without it. |
+| `el plugin sd_mcp_bridge no responde` (the sd_mcp_bridge plugin is not responding) | If the menu shows `MCP ○`, choose **MCP > Activar el puente** (enable the bridge). If there is no MCP menu, check **Tools > Plugin Manager** and the folder structure from step 2, and restart Designer. |
+| `no pudo iniciar el puente` (could not start the bridge) in Designer's console | The port is in use or `config.json` has an error. Change `bridge_port`. |
+| `fuera de las carpetas permitidas` (outside the allowed folders) | Add the folder to `allowed_dirs` and restart Designer. |
+| `Designer no respondio a tiempo` (Designer did not respond in time) | It may be computing or have a dialog open. The command might still run once it frees up. |
 
-## Licencia
+## License
 
-[MIT](LICENSE), © PropGon. Adobe y Substance 3D Designer son marcas de Adobe; el uso de `sbscooker` y `sbsrender` se rige por tu licencia con Adobe.
+[MIT](LICENSE), © PropGon. Adobe and Substance 3D Designer are trademarks of Adobe; the use of `sbscooker` and `sbsrender` is governed by your Adobe license.
